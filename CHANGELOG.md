@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3 — 2026-08-22
+- Perf: panel hero face no longer animates while the panel is closed (it was animating off-screen).
+- Perf: bar eye pulse is a stepped ~10 fps timer instead of a continuous 60 fps animation; dropped the halo opacity Behavior. quickshell CPU 17% → ~13.5% (no-animation floor ~11.5%).
+- Known: "IpcHandler … another handler is registered" warnings — Omarchy instantiates bar widgets twice; same as rift; harmless.
+
 ## 0.3.2 — 2026-08-22
 - Change: red (alert) face only on a confirmed service outage. Missing or stale heartbeat now dims the face instead of turning it red (false alarms after boot/resume).
 - Collector: `state_from_title()` factored out + `--state-of "<title>"` test hook; unit cases in tests.

@@ -405,6 +405,7 @@ Panel {
             iconComponent: Component {
               CyberFace {
                 size: Style.space(52)
+                animate: root.opened          // never animate off-screen
                 mood: root.mood
                 base: root.foreground
                 red: root.urgent

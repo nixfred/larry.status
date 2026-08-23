@@ -109,7 +109,6 @@ Item {
         color: root.eyeColor
         opacity: root.asleep ? 0 : 0.22 * root.pulse
         visible: !root.asleep
-        Behavior on opacity { NumberAnimation { duration: 250 } }
       }
       // eye itself
       Rectangle {
@@ -171,13 +170,21 @@ Item {
   }
 
   // Pulse: thinking slow, working fast, otherwise steady.
-  SequentialAnimation {
-    id: pulseAnim
+  // Stepped (~10 fps) on purpose: a continuous 60 fps NumberAnimation in the
+  // bar keeps quickshell repainting the whole bar layer all day.
+  property int pulseStep: 0
+  Timer {
+    id: pulseTimer
+    interval: root.mood === "working" ? 90 : 180
     running: root.animate && root.busy && root.visible
-    loops: Animation.Infinite
-    onRunningChanged: if (!running) root.pulse = 1.0
-    NumberAnimation { target: root; property: "pulse"; to: 0.35; duration: root.mood === "working" ? 420 : 900; easing.type: Easing.InOutSine }
-    NumberAnimation { target: root; property: "pulse"; to: 1.0;  duration: root.mood === "working" ? 420 : 900; easing.type: Easing.InOutSine }
+    repeat: true
+    onTriggered: {
+      root.pulseStep = (root.pulseStep + 1) % 10
+      // triangle wave 1.0 → 0.35 → 1.0 over 10 steps
+      var t = root.pulseStep < 5 ? root.pulseStep / 5 : (10 - root.pulseStep) / 5
+      root.pulse = 1.0 - 0.65 * t
+    }
+    onRunningChanged: if (!running) { root.pulse = 1.0; root.pulseStep = 0 }
   }
 
   // Mouth equalizer while speaking.
