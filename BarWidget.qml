@@ -121,8 +121,10 @@ BarWidget {
     command: ["bash", root.sessionsScript]
     stdout: StdioCollector {
       onStreamFinished: {
-        try { root.sessions = JSON.parse(text.trim() || "[]") }
-        catch (e) { root.sessions = [] }
+        try {
+          var v = JSON.parse(text.trim() || "[]")
+          root.sessions = Array.isArray(v) ? v : []
+        } catch (e) { root.sessions = [] }
       }
     }
   }

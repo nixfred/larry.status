@@ -30,7 +30,7 @@ Detached sessions (daemon-hosted Claude with no terminal on this host) are liste
 ## Clicks & keys
 
 - Left-click → panel · middle-click → `larry-heartbeat` now · right-click → next agent window
-- Panel: `1–9` jump · `h` heartbeat · `r` refresh · `Esc` close
+- Panel: `1–9` jump · `j`/`k` + Enter · `c` heartbeat (check) · `r` refresh · `Esc` close
 
 ## IPC
 

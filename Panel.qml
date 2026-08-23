@@ -45,6 +45,7 @@ Panel {
   property string memLine: "…"
   property string actionNote: ""
   property bool busy: false
+  property int cursor: -1               // keyboard-selected agent row (j/k + Enter)
 
   readonly property string home: Quickshell.env("HOME")
 
@@ -53,6 +54,7 @@ Panel {
     refreshBrain()
     if (hostWidget) hostWidget.refreshSessions()
     actionNote = ""
+    cursor = -1
     controller.show()
   }
   function close() { controller.hide() }
@@ -250,7 +252,8 @@ Panel {
     Layout.fillWidth: true
     implicitHeight: inner.implicitHeight + Style.space(10)
     radius: Style.cornerRadius
-    color: hover.containsMouse ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08) : "transparent"
+    readonly property bool selected: root.cursor === row.ordinal - 1
+    color: (hover.containsMouse || selected) ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, selected ? 0.14 : 0.08) : "transparent"
     opacity: s.attached ? 1 : 0.55
 
     MouseArea {
@@ -285,10 +288,10 @@ Panel {
         SequentialAnimation on opacity {
           running: row.busyState && root.opened
           loops: Animation.Infinite
+          onRunningChanged: if (!running) dot.opacity = 1
           NumberAnimation { to: 0.25; duration: 500 }
           NumberAnimation { to: 1.0;  duration: 500 }
         }
-        onVisibleChanged: opacity = 1
       }
       // agent glyph: Claude (Larry) vs Codex
       Text {
@@ -361,8 +364,16 @@ Panel {
       anchors.fill: parent
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      // j/k (or arrows) move the agent cursor; Enter/Space jumps. Note: the
+      // catcher consumes h/j/k/l as movement, so hotkeys must avoid them.
+      onMoveRequested: function(dx, dy) {
+        if (root.sessions.length === 0 || dy === 0) return
+        root.cursor = (root.cursor + dy + root.sessions.length) % root.sessions.length
+      }
+      onActivateRequested: if (root.cursor >= 0 && root.cursor < root.sessions.length) root.jumpTo(root.sessions[root.cursor])
+      onReturnRequested:   if (root.cursor >= 0 && root.cursor < root.sessions.length) root.jumpTo(root.sessions[root.cursor])
       onTextKey: function(text) {
-        if (text === "h" || text === "H") { root.busy = true; heartbeatNow.running = true }
+        if (text === "c" || text === "C") { root.busy = true; heartbeatNow.running = true }
         else if (text === "r" || text === "R") { statusFile.reload(); root.refreshBrain(); if (root.hostWidget) root.hostWidget.refreshSessions() }
         else if (text >= "1" && text <= "9") {
           var i = Number(text) - 1
@@ -414,7 +425,7 @@ Panel {
               fontFamily: root.fontFamily
             }
             Text {
-              text: root.sessions.length === 0 ? "" : root.sessions.length + " live · click or 1–9 to jump"
+              text: root.sessions.length === 0 ? "" : root.sessions.length + " live · click, 1–9, or j/k+Enter"
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
@@ -523,7 +534,7 @@ Panel {
             foreground: root.foreground
             fontFamily: root.fontFamily
           }
-          ActionRow { label: "Heartbeat now";   hint: "check + self-heal (h)"; onFired: heartbeatNow.running = true }
+          ActionRow { label: "Heartbeat now";   hint: "check + self-heal (c)"; onFired: heartbeatNow.running = true }
           ActionRow { label: "Snapshot /home";  hint: "btrfs via larry-snap";  onFired: snapNow.running = true }
           ActionRow { label: "Save Larry";      hint: "vicup → both repos";    onFired: vicupNow.running = true }
 
