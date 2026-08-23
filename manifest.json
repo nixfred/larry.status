@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "larry.status",
   "name": "Larry Status",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "Larry & Fred",
   "license": "MIT",
-  "description": "Larry's control room: service health (qdrant, ollama, backups), brain state (loaded model, LMF memory), and one-click actions (heartbeat, btrfs snapshot, vicup save). Left-click = panel, middle-click = instant heartbeat.",
+  "description": "Larry's face in the bar, alive. Reacts to the agents running on this host (Claude Code + Codex): asleep, idle, thinking, working, needs-you, speaking, alert. Panel = Agents on Deck (click or 1-9 to jump to that window), service health (qdrant, ollama, backups), fleet, brain state, one-click actions (heartbeat, btrfs snapshot, vicup save). Left-click = panel, middle-click = heartbeat now, right-click = next agent window.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Larry Status",
-    "description": "Green robot = qdrant, ollama, and backups all healthy. Red = something is down. Dimmed = heartbeat stale.",
+    "description": "Cyber face + agent count. Eyes: cyan = fine, pulsing = working, amber = an agent is waiting on you, red = a service is down, closed = no agents running. Mouth animates while Larry speaks.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",

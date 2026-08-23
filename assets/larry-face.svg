@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <filter id="g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+  </defs>
+  <rect width="200" height="200" rx="28" fill="#101315"/>
+  <!-- head -->
+  <rect x="18" y="18" width="164" height="164" rx="40" fill="none" stroke="#cacccc" stroke-width="9"/>
+  <!-- ears -->
+  <rect x="4" y="78" width="12" height="52" rx="6" fill="#cacccc"/>
+  <rect x="184" y="78" width="12" height="52" rx="6" fill="#cacccc"/>
+  <!-- visor strip -->
+  <rect x="66" y="30" width="68" height="8" rx="4" fill="#cacccc" opacity=".8"/>
+  <!-- eye glow -->
+  <rect x="38" y="68" width="58" height="34" rx="17" fill="#5fd7ff" opacity=".35" filter="url(#g)"/>
+  <rect x="104" y="68" width="58" height="34" rx="17" fill="#5fd7ff" opacity=".35" filter="url(#g)"/>
+  <!-- eyes -->
+  <rect x="46" y="72" width="42" height="26" rx="13" fill="#5fd7ff"/>
+  <rect x="112" y="72" width="42" height="26" rx="13" fill="#5fd7ff"/>
+  <!-- mouth equalizer -->
+  <g fill="#cacccc" opacity=".9">
+    <rect x="68" y="132" width="10" height="14" rx="5"/>
+    <rect x="84" y="126" width="10" height="26" rx="5"/>
+    <rect x="100" y="122" width="10" height="34" rx="5"/>
+    <rect x="116" y="126" width="10" height="26" rx="5"/>
+    <rect x="132" y="132" width="10" height="14" rx="5"/>
+  </g>
+</svg>
