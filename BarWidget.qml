@@ -30,7 +30,10 @@ BarWidget {
   property bool okBackup: false
   property string lastTs: ""
   property bool stale: true
-  readonly property bool allGreen: okOllama && okQdrant && okBackup && !stale
+  property bool haveStatus: false      // heartbeat file present + parseable
+  // Red face only for a confirmed outage. Missing/stale heartbeat = unknown → dimmed, not red.
+  readonly property bool servicesDown: haveStatus && !(okOllama && okQdrant && okBackup)
+  readonly property bool allGreen: haveStatus && okOllama && okQdrant && okBackup && !stale
 
   // ---- agents on deck
   property var sessions: []            // [{pid,sid,name,cwd,project,state,agent,attached,address,workspace,etimes}]
@@ -45,7 +48,7 @@ BarWidget {
 
   // ---- mood → face
   readonly property string mood:
-    !allGreen ? "alert"
+    servicesDown ? "alert"
     : speaking ? "speaking"
     : questionCount > 0 ? "question"
     : sessions.some(function(s){ return s.state === "working" }) ? "working"
@@ -93,9 +96,11 @@ BarWidget {
       okQdrant = s.qdrant === true
       okBackup = s.backup_timer === true
       lastTs = s.ts || ""
+      haveStatus = true
     } catch (e) {
       okOllama = okQdrant = okBackup = false
       lastTs = ""
+      haveStatus = false
     }
     staleCheck()
   }
@@ -195,7 +200,8 @@ BarWidget {
         + (root.questionCount ? ", " + root.questionCount + " waiting on you" : ""))
     }
     if (root.speaking) parts.push("speaking")
-    if (!root.allGreen) parts.push("ollama=" + (root.okOllama ? "up" : "DOWN")
+    if (!root.haveStatus) parts.push("no heartbeat yet")
+    else if (!root.allGreen) parts.push("ollama=" + (root.okOllama ? "up" : "DOWN")
         + " qdrant=" + (root.okQdrant ? "up" : "DOWN")
         + " backup=" + (root.okBackup ? "on" : "OFF")
         + (root.stale ? " [heartbeat stale]" : ""))
@@ -211,8 +217,8 @@ BarWidget {
     labelVisible: false
     keepSpace: true
     fixedWidth: content.implicitWidth + Style.spaceReal(horizontalMargin) * 2
-    dimmed: root.stale && root.sessionCount === 0
-    active: !root.allGreen
+    dimmed: root.stale || !root.haveStatus
+    active: root.servicesDown
     useActiveColor: false
     tooltipText: root.tooltip()
     onPressed: function(code) {

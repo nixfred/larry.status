@@ -15,6 +15,20 @@ STATE="${HOME}/.claude/MEMORY/STATE"
 NAMES="${STATE}/session-names.json"
 KSESS="${STATE}/kitty-sessions"
 
+# Map a kitty window title to an agent state. Larry's hooks prefix titles with
+# 🧠 (thinking) ⚙️ (working) ❓ (question) ✓ (done); Claude/Codex spinners use braille.
+state_from_title() {
+  case "$1" in
+    ❓*) echo question ;;
+    🧠*) echo thinking ;;
+    ⚙*|⠋*|⠙*|⠹*|⠸*|⠼*|⠴*|⠦*|⠧*|⠇*|⠏*) echo working ;;
+    *"Processing request"*) echo working ;;
+    *) echo idle ;;
+  esac
+}
+# test hook: larry_sessions.sh --state-of "<title>"
+if [ "${1:-}" = "--state-of" ]; then state_from_title "${2:-}"; exit 0; fi
+
 command -v jq >/dev/null 2>&1 || { echo '[]'; exit 0; }
 
 clients="$(hyprctl clients -j 2>/dev/null || echo '[]')"
@@ -70,13 +84,7 @@ for pid in $(pgrep -x claude 2>/dev/null; pgrep -x codex 2>/dev/null); do
     read -r addr ws title < <(jq -r --argjson p "$kpid" \
       '[.[] | select(.pid == $p)] | first // empty | "\(.address) \(.workspace.id) \(.title)"' <<<"$clients")
   fi
-  state="idle"
-  case "$title" in
-    ❓*) state="question" ;;
-    🧠*) state="thinking" ;;
-    ⚙*|⠋*|⠙*|⠹*|⠸*|⠼*|⠴*|⠦*|⠧*|⠇*|⠏*|⠸*) state="working" ;;
-    *" Processing "*|*"Processing request"*) state="working" ;;
-  esac
+  state="$(state_from_title "$title")"
   [ -z "$addr" ] && attached=false || attached=true
 
   out="$(jq -c \

@@ -18,6 +18,21 @@ jq -e '.id=="larry.status" and .entryPoints.barWidget=="BarWidget.qml"' manifest
 v=$(jq -r .version manifest.json); grep -q "$v" CHANGELOG.md 2>/dev/null && ok "CHANGELOG mentions $v" || bad "CHANGELOG missing $v"
 bash -n larry_sessions.sh && ok "larry_sessions.sh parses" || bad "larry_sessions.sh syntax error"
 
+echo "state parser:"
+while IFS='|' read -r title want; do
+  got=$(./larry_sessions.sh --state-of "$title")
+  [ "$got" = "$want" ] && ok "'$title' → $want" || bad "'$title' → $got (want $want)"
+done <<'CASES'
+⚙️ Processing request.|working
+🧠 Thinking about the plugin|thinking
+❓ Which branch?|question
+⠧ pi|working
+✓ Larry Session|idle
+pi|idle
+|idle
+plugin.latency.intern...|idle
+CASES
+
 echo "collector:"
 out=$(timeout 10 ./larry_sessions.sh) || { bad "collector exited non-zero"; out='[]'; }
 jq -e 'type=="array"' <<<"$out" >/dev/null && ok "emits JSON array" || bad "not a JSON array: ${out:0:80}"
