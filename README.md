@@ -64,3 +64,9 @@ Never edit the live dir — Omarchy hot-reloads on every save and pops the panel
 ```
 rsync -a --delete --exclude .git ~/Projects/larry.status/ ~/.config/omarchy/plugins/larry.status/ && omarchy-restart-shell
 ```
+
+## Tests
+
+```
+tests/run.sh     # static checks, state-parser unit cases, collector JSON contract, live IPC round-trip
+```
