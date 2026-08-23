@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "larry.status",
+  "name": "Larry Status",
+  "version": "0.2.0",
+  "author": "Larry & Fred",
+  "license": "MIT",
+  "description": "Larry's control room: service health (qdrant, ollama, backups), brain state (loaded model, LMF memory), and one-click actions (heartbeat, btrfs snapshot, vicup save). Left-click = panel, middle-click = instant heartbeat.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Larry Status",
+    "description": "Green robot = qdrant, ollama, and backups all healthy. Red = something is down. Dimmed = heartbeat stale.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}
