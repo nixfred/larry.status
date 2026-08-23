@@ -101,6 +101,19 @@ Panel {
       default:         return root.dim
     }
   }
+  function agentLabel(a) { return a === "claude" ? "larry" : (a || "agent") }
+  function agentGlyph(a) {
+    switch (a) {
+      case "claude":   return "󰚩"
+      case "codex":    return ""
+      case "opencode": return "󰅩"
+      case "grok":     return "𝕏"
+      case "gemini":   return "󰊭"
+      case "copilot":  return ""
+      case "aider":    return "󰭹"
+      default:         return "󰭹"
+    }
+  }
   function moodLine() {
     switch (mood) {
       case "sleep":    return "Asleep — no agents running"
@@ -293,11 +306,11 @@ Panel {
           NumberAnimation { to: 1.0;  duration: 500 }
         }
       }
-      // agent glyph: Claude (Larry) vs Codex
+      // agent glyph (Larry bright, everyone else dim)
       Text {
-        text: row.s.agent === "codex" ? "" : "󰚩"
+        text: root.agentGlyph(row.s.agent)
         textFormat: Text.PlainText
-        color: row.s.agent === "codex" ? root.dim : root.foreground
+        color: row.s.agent === "claude" ? root.foreground : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
       }
@@ -316,7 +329,7 @@ Panel {
         }
         Text {
           Layout.fillWidth: true
-          text: (row.s.agent === "codex" ? "codex · " : "larry · ")
+          text: root.agentLabel(row.s.agent) + " · "
             + (row.s.cwd || "").replace(root.home, "~")
             + (row.s.attached ? "" : " · detached")
           textFormat: Text.PlainText
@@ -436,7 +449,7 @@ Panel {
           Text {
             Layout.fillWidth: true
             visible: root.sessions.length === 0
-            text: "No Claude Code or Codex sessions running on this host. Larry is asleep."
+            text: "No agent sessions (Claude Code, Codex, OpenCode, Grok, Gemini, Copilot…) on this host. Larry is asleep."
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily

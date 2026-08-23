@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-08-22
+- Agents on Deck now tracks **every agent CLI on the host**: Claude Code, Codex, OpenCode, Grok, Gemini, Copilot, aider (comm/argv detection, helper processes de-duplicated by ancestry).
+- **Crisp session names**: each session is matched to its own transcript by start time (±20s) and named from the first real prompt → then upgraded to a 3–5 word title from local gemma2 (Ollama, async, cached in `$XDG_RUNTIME_DIR/larry.status`). OpenCode uses its own `session.title`; Grok uses `prompt_history.jsonl`; Claude falls back to `current-work` task title → hook session-names → dir. `title_src` field says which.
+- `LARRY_STATUS_NO_LLM=1` / `--no-llm` disables the LLM step; `LARRY_STATUS_LLM_MODEL` overrides the model.
+- Fix: Codex rollout session_meta line is >2KB — read the whole first line.
+- Panel: per-agent glyphs and labels.
+
 ## 0.3.3 — 2026-08-22
 - Perf: panel hero face no longer animates while the panel is closed (it was animating off-screen).
 - Perf: bar eye pulse is a stepped ~10 fps timer instead of a continuous 60 fps animation; dropped the halo opacity Behavior. quickshell CPU 17% → ~13.5% (no-animation floor ~11.5%).

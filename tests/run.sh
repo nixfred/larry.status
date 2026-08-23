@@ -33,15 +33,24 @@ pi|idle
 plugin.latency.intern...|idle
 CASES
 
+echo "name trimming:"
+t=$(./larry_sessions.sh --trim "  work on your Larry plugin, I think it can be much better.  Put your cyber face in a graphic  ")
+[ "$t" = "work on your Larry plugin, I think it can…" ] && ok "long prompt → '$t'" || bad "trim gave '$t'"
+t=$(./larry_sessions.sh --trim "short one"); [ "$t" = "short one" ] && ok "short stays" || bad "short changed: '$t'"
+t=$(./larry_sessions.sh --trim "\"quoted title\""); [ "$t" = "quoted title" ] && ok "quotes stripped" || bad "quotes: '$t'"
+
 echo "collector:"
-out=$(timeout 10 ./larry_sessions.sh) || { bad "collector exited non-zero"; out='[]'; }
+out=$(LARRY_STATUS_NO_LLM=1 timeout 15 ./larry_sessions.sh) || { bad "collector exited non-zero"; out='[]'; }
 jq -e 'type=="array"' <<<"$out" >/dev/null && ok "emits JSON array" || bad "not a JSON array: ${out:0:80}"
 n=$(jq length <<<"$out")
 if [ "$n" -gt 0 ]; then
   jq -e 'all(.[]; has("pid") and has("sid") and has("name") and has("cwd") and has("state") and has("agent") and has("attached") and has("address") and has("workspace") and has("etimes"))' <<<"$out" >/dev/null \
     && ok "all $n rows have required keys" || bad "rows missing keys"
   jq -e 'all(.[]; .state|IN("working","thinking","question","idle"))' <<<"$out" >/dev/null && ok "states valid" || bad "invalid state value"
-  jq -e 'all(.[]; .agent|IN("claude","codex"))' <<<"$out" >/dev/null && ok "agents valid" || bad "invalid agent value"
+  jq -e 'all(.[]; .agent|IN("claude","codex","opencode","grok","gemini","copilot","aider"))' <<<"$out" >/dev/null && ok "agents valid" || bad "invalid agent value"
+  jq -e 'all(.[]; .title_src|IN("llm","prompt","agent","hook","dir"))' <<<"$out" >/dev/null && ok "title_src valid" || bad "invalid title_src"
+  jq -e 'all(.[]; (.name|length) <= 46)' <<<"$out" >/dev/null && ok "names ≤ 44 chars + ellipsis" || bad "name too long"
+  jq -e 'all(.[]; .agent != "claude" or .title_src != "dir")' <<<"$out" >/dev/null && ok "every claude session has a real name (not dir fallback)" || bad "claude session fell back to dir name"
   jq -e 'all(.[]; (.attached|not) or (.address|startswith("0x")))' <<<"$out" >/dev/null && ok "attached rows have hypr address" || bad "attached row without address"
   jq -e 'all(.[]; .name != "")' <<<"$out" >/dev/null && ok "every row named" || bad "unnamed row"
   jq -e '[.[].etimes] == ([.[].etimes]|sort)' <<<"$out" >/dev/null && ok "sorted newest-first" || bad "not sorted by etimes"

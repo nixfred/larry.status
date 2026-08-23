@@ -20,8 +20,15 @@ Next to the face: number of agents on deck (amber when one is waiting on you).
 
 ## Killer feature — Agents on Deck
 
-The panel lists every live agent session on this host — Claude Code (Larry) **and** Codex — with
-name (from `session-names.json`), project dir, state, workspace, and age.
+The panel lists every live agent session on this host — Claude Code (Larry), Codex, OpenCode, Grok,
+Gemini, Copilot, aider — with a crisp name, project dir, state, workspace, and age.
+
+**Crisp names:** each process is matched to its own transcript by start time (±20 s), named from
+the first real prompt, then upgraded to a 3–5 word title by local gemma2 via Ollama (async, cached
+per session in `$XDG_RUNTIME_DIR/larry.status/`). `LARRY_STATUS_NO_LLM=1` to disable,
+`LARRY_STATUS_LLM_MODEL=…` to change the model. Per-agent sources: Claude `~/.claude/projects/**/<sid>.jsonl`
+→ `current-work-<sid>.json` → `session-names.json`; Codex `~/.codex/sessions/**/rollout-*.jsonl`;
+OpenCode `opencode.db session.title`; Grok `~/.grok/sessions/<cwd>/prompt_history.jsonl`.
 **Click a row, or press `1`–`9`, to jump straight to that terminal window.**
 Right-click the bar face to cycle through agent windows without opening the panel.
 
