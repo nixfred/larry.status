@@ -67,7 +67,11 @@ command -v jq >/dev/null 2>&1 || { echo '[]'; exit 0; }
 
 epoch_of() { date -d "$1" +%s 2>/dev/null || echo 0; }
 abs_diff() { local d=$(( $1 - $2 )); echo "${d#-}"; }
-start_epoch() { date -d "$(ps -o lstart= -p "$1" 2>/dev/null)" +%s 2>/dev/null || echo 0; }
+BTIME="$(awk '/^btime/ {print $2}' /proc/stat)"; CLK_TCK="$(getconf CLK_TCK 2>/dev/null || echo 100)"; NOW="$(printf '%(%s)T' -1)"
+start_epoch() { # pid → epoch seconds, from /proc (no ps/date spawn)
+  local st; st="$(awk '{print $22}' /proc/"$1"/stat 2>/dev/null)" || { echo 0; return; }
+  echo $(( BTIME + st / CLK_TCK ))
+}
 
 kitty_ancestor() { # pid → nearest ancestor whose comm is kitty (or empty)
   local p="$1" c
@@ -88,8 +92,9 @@ ancestor_in_set() { # pid setfile → 0 if any of up to 4 ancestors is listed
 }
 
 # Async LLM title: writes $CACHE/llm/<key> once; prints cached text if present.
-llm_title() { # key prompt
-  local key="$1" prompt="$2" f="$CACHE/llm/$1"
+llm_title() { # _unused prompt  (cache key = hash of the prompt, so forks/resumes share a title)
+  local prompt="$2" key f
+  key="$(printf '%s' "$prompt" | md5sum | cut -c1-16)"; f="$CACHE/llm/$key"
   [ -s "$f" ] && { cat "$f"; return 0; }
   [ "$LLM" = 1 ] || return 1
   if [ -e "$f.lock" ]; then
@@ -193,7 +198,7 @@ ps -eo pid=,comm=,args= | while read -r pid comm args; do
 done > "$cands"
 cut -f1 "$cands" > "$cands.pids"
 
-out='[]'
+rows="$(mktemp)"; trap 'rm -f "$cands" "$cands.pids" "$rows"' EXIT
 while IFS=$'\t' read -r pid agent; do
   [ -d /proc/"$pid" ] || continue
   # Skip helpers whose ancestor is already an agent (workers, sub-shells, forks).
@@ -204,21 +209,54 @@ while IFS=$'\t' read -r pid agent; do
     pargs="$(tr '\0' ' ' </proc/"$(awk '{print $4}' /proc/"$pid"/stat 2>/dev/null)"/cmdline 2>/dev/null)"
     case "$pargs" in *bg-pty-host*) ;; *) continue ;; esac   # headless/agent-spawned → skip
   fi
-  etimes="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"; etimes="${etimes:-0}"
-  start="$(start_epoch "$pid")"
+  start="$(start_epoch "$pid")"; etimes=$(( NOW - start )); [ "$etimes" -lt 0 ] && etimes=0
   cwd="$(readlink /proc/"$pid"/cwd 2>/dev/null || echo "")"
   project="$(basename "${cwd:-/}")"
-  kpid="$(kitty_ancestor "$pid")"
 
-  # session id
-  sid="$(sed -n 's/.*--session-id \([0-9a-f-]\{36\}\).*/\1/p' <<<"$argv")"
-  if [ "$agent" = claude ]; then
-    [ -z "$sid" ] && [ -n "$kpid" ] && sid="$(jq -r --arg k "$kpid" '.[$k] // ""' <<<"$kmap")"
-    [ -z "$sid" ] && sid="$(claude_sid_by_start "$cwd" "$start" || true)"
+  # ---- static facts per process (sid, kitty pid, prompt, name) — cached per pid+start.
+  # Only title/state/window/etimes are re-read every poll.
+  ckey="$pid-$start"; cf="$CACHE/names/$ckey"
+  sid="" name="" src="" prompt=""
+  if [ -s "$cf" ]; then
+    IFS=$'\t' read -r src name sid kpid prompt < "$cf"
+    [ "$kpid" = "-" ] && kpid=""
+  else
+    kpid="$(kitty_ancestor "$pid")"
+    sid="$(sed -n 's/.*--session-id \([0-9a-f-]\{36\}\).*/\1/p' <<<"$argv")"
+    if [ "$agent" = claude ]; then
+      [ -z "$sid" ] && [ -n "$kpid" ] && sid="$(jq -r --arg k "$kpid" '.[$k] // ""' <<<"$kmap")"
+      [ -z "$sid" ] && sid="$(claude_sid_by_start "$cwd" "$start" || true)"
+    fi
+    [ -z "$sid" ] && sid="$agent-$pid"
+    case "$agent" in
+      claude)
+        [ "$sid" != "claude-$pid" ] && prompt="$(claude_first_prompt "$sid" "$cwd" || true)"
+        if [ -z "$prompt" ] && [ -r "$STATE/current-work-$sid.json" ]; then
+          prompt="$(jq -r '.task_title // ""' "$STATE/current-work-$sid.json" 2>/dev/null)"
+        fi ;;
+      codex)    prompt="$(codex_first_prompt "$start" "$cwd" || true)"
+                [ -z "$prompt" ] && case "$cwd" in */Documents/Codex/*) prompt="$(basename "$cwd" | tr '-' ' ')" ;; esac ;;
+      opencode) name="$(opencode_title "$start" "$cwd" || true)"; [ -n "$name" ] && src=agent ;;
+      grok)     prompt="$(grok_first_prompt "$start" "$cwd" || true)" ;;
+    esac
+    prompt="$(printf '%s' "$prompt" | tr '\n\r\t' '   ' | cut -c1-600)"
+    if [ -z "$name" ] && [ -n "$prompt" ]; then name="$(trim_name "$prompt")"; src=prompt; fi
+    if [ -z "$name" ] && [ "$agent" = claude ]; then
+      name="$(jq -r --arg s "$sid" '.[$s] // ""' <<<"$names")"; [ -n "$name" ] && src=hook
+    fi
+    [ -z "$name" ] && { name="$project"; src=dir; }
+    # sessions younger than 30s may not have written their transcript yet — don't freeze a weak name
+    if [ "$src" = llm ] || [ "$src" = agent ] || [ -n "$prompt" ] || [ "$etimes" -gt 30 ]; then
+      printf '%s\t%s\t%s\t%s\t%s' "$src" "$name" "$sid" "${kpid:--}" "$prompt" > "$cf"
+    fi
   fi
-  [ -z "$sid" ] && sid="$agent-$pid"
+  # Upgrade to an LLM title once the async titler has produced one.
+  if [ "$src" != llm ] && [ -n "$prompt" ] && t="$(llm_title "$ckey" "$prompt")"; then
+    name="$(trim_name "$t")"; src=llm
+    printf '%s\t%s\t%s\t%s\t%s' "$src" "$name" "$sid" "${kpid:--}" "$prompt" > "$cf"
+  fi
 
-  # window + state
+  # window + state (dynamic)
   addr="" ws="" title=""
   if [ -n "$kpid" ]; then
     read -r addr ws title < <(jq -r --argjson p "$kpid" \
@@ -227,45 +265,13 @@ while IFS=$'\t' read -r pid agent; do
   state="$(state_from_title "$title")"
   [ -z "$addr" ] && attached=false || attached=true
 
-  # ---- crisp name (cached per pid+start once settled)
-  ckey="$pid-$start"; cf="$CACHE/names/$ckey"
-  name=""; src=""
-  [ -s "$cf" ] && IFS=$'\t' read -r src name < "$cf"
-  if [ -z "$name" ]; then
-    prompt=""
-    case "$agent" in
-      claude)
-        [ "$sid" != "claude-$pid" ] && prompt="$(claude_first_prompt "$sid" "$cwd" || true)"
-        if [ -z "$prompt" ] && [ -r "$STATE/current-work-$sid.json" ]; then
-          prompt="$(jq -r '.task_title // ""' "$STATE/current-work-$sid.json" 2>/dev/null)"
-        fi ;;
-      codex)    prompt="$(codex_first_prompt "$start" "$cwd" || true)"
-                # Codex desktop cwd slug (Documents/Codex/<date>/<slug>) is already a title
-                [ -z "$prompt" ] && case "$cwd" in */Documents/Codex/*) prompt="$(basename "$cwd" | tr '-' ' ')" ;; esac ;;
-      opencode) name="$(opencode_title "$start" "$cwd" || true)"; [ -n "$name" ] && src=agent ;;
-      grok)     prompt="$(grok_first_prompt "$start" "$cwd" || true)" ;;
-    esac
-    if [ -z "$name" ] && [ -n "$prompt" ]; then name="$(trim_name "$prompt")"; src=prompt; fi
-    if [ -z "$name" ] && [ "$agent" = claude ]; then
-      name="$(jq -r --arg s "$sid" '.[$s] // ""' <<<"$names")"; [ -n "$name" ] && src=hook
-    fi
-    [ -z "$name" ] && { name="$project"; src=dir; }
-    # Upgrade to an LLM title when we have a real prompt (async; lands on a later poll).
-    if [ -n "$prompt" ] && t="$(llm_title "$ckey" "$prompt")"; then name="$(trim_name "$t")"; src=llm; fi
-    # Cache settled names only: llm / agent-provided, or prompt-trim when LLM is disabled.
-    if [ "$src" = llm ] || [ "$src" = agent ] || { [ "$src" = prompt ] && [ "$LLM" = 0 ]; }; then
-      printf '%s\t%s' "$src" "$name" > "$cf"
-    fi
-  fi
-
-  out="$(jq -c \
-    --argjson pid "$pid" --arg sid "$sid" --arg name "$name" --arg src "$src" --arg cwd "$cwd" \
-    --arg project "$project" --arg state "$state" --arg title "$title" \
-    --arg kpid "${kpid:-0}" --arg addr "$addr" --arg ws "${ws:-0}" --arg et "$etimes" \
-    --arg agent "$agent" --argjson attached "$attached" \
-    '. + [{pid:$pid, sid:$sid, name:$name, title_src:$src, cwd:$cwd, project:$project, state:$state,
-           agent:$agent, attached:$attached, title:$title, kittyPid:($kpid|tonumber),
-           address:$addr, workspace:($ws|tonumber? // 0), etimes:($et|tonumber? // 0)}]' <<<"$out")"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$pid" "$sid" "$name" "$src" "$cwd" "$project" "$state" "$agent" "$attached" \
+    "$(printf '%s' "$title" | tr '\t' ' ')" "${kpid:-0}" "$addr" "${ws:-0}" "$etimes" >> "$rows"
 done < "$cands"
 
-jq -c 'sort_by(.etimes)' <<<"$out"
+jq -Rsc 'split("\n") | map(select(length>0) | split("\t")) | map({
+    pid:(.[0]|tonumber), sid:.[1], name:.[2], title_src:.[3], cwd:.[4], project:.[5], state:.[6],
+    agent:.[7], attached:(.[8]=="true"), title:.[9], kittyPid:(.[10]|tonumber? // 0),
+    address:.[11], workspace:(.[12]|tonumber? // 0), etimes:(.[13]|tonumber? // 0)})
+  | sort_by(.etimes)' "$rows"

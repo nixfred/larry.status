@@ -133,7 +133,7 @@ BarWidget {
       }
     }
   }
-  Timer { interval: 5000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refreshSessions() }
+  Timer { interval: 8000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refreshSessions() }
 
   // Focus an agent's terminal window by Hyprland address.
   Process { id: focusProc }

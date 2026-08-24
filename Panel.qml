@@ -150,9 +150,9 @@ Panel {
     onLoadFailed: root.parseStatus("")
   }
 
-  // Keep the agent list fresh while the panel is open (host polls every 5s anyway).
+  // Keep the agent list fresh while the panel is open (host polls every 8s anyway).
   Timer {
-    interval: 2000
+    interval: 3000
     running: root.opened
     repeat: true
     onTriggered: if (root.hostWidget) root.hostWidget.refreshSessions()
