@@ -50,7 +50,7 @@ omarchy-shell larry.status check      # heartbeat now
 
 ## Files
 
-- `BarWidget.qml` — bar face + badge, pollers (sessions 5s, voice 1.2s when enabled), IPC
+- `BarWidget.qml` — bar face + badge, pollers (sessions 8s, voice 1.2s when enabled), IPC
 - `Panel.qml` — control room
 - `CyberFace.qml` — the face (size/mood driven, used in bar and panel)
 - `larry_sessions.sh` — enumerates agent sessions: `/proc` → kitty ancestor → `hyprctl clients` → state from tab title
