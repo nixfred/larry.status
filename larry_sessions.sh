@@ -19,6 +19,7 @@
 #
 # Test hooks:  --state-of "<title>"   --trim "<text>"   --no-llm
 set -u
+export LC_ALL=C.UTF-8      # quickshell spawns us with a C locale; names must be counted in chars, not bytes
 STATE="${HOME}/.claude/MEMORY/STATE"
 CACHE="${XDG_RUNTIME_DIR:-/tmp}/larry.status"
 NAME_MAX=44
@@ -46,8 +47,19 @@ trim_name() {
   fi
   printf '%s' "$t"
 }
+# keep/skip decision for a candidate process. Only the SUBCOMMAND (2nd token) and real
+# flags are judged — never words inside a quoted prompt ("please run the tests").
+filter_args() { # args → keep | skip
+  local sub; sub="$(awk '{print $2}' <<<"$1")"
+  case "$sub" in
+    daemon|exec|mcp|mcp-server|serve|run|login|logout|update|doctor|config|install|bg-pty-host|bg-spare|--version|-v|--help|-h|-p|--print) echo skip; return ;;
+  esac
+  case " $1 " in *" bg-pty-host "*|*" --bg-pty-host "*|*" --bg-spare "*|*" -p "*|*" --print "*|*" mcp-server "*) echo skip; return ;; esac
+  echo keep
+}
 case "${1:-}" in
   --state-of) state_from_title "${2:-}"; exit 0 ;;
+  --filter-of) filter_args "${2:-}"; exit 0 ;;
   --trim)     trim_name "${2:-}"; echo; exit 0 ;;
   --no-llm)   LLM=0 ;;
 esac
@@ -80,8 +92,12 @@ llm_title() { # key prompt
   local key="$1" prompt="$2" f="$CACHE/llm/$1"
   [ -s "$f" ] && { cat "$f"; return 0; }
   [ "$LLM" = 1 ] || return 1
-  [ -e "$f.lock" ] && return 1
+  if [ -e "$f.lock" ]; then
+    # a lock older than 2 min means the background titler died (killed shell, reboot mid-run)
+    [ -n "$(find "$f.lock" -mmin +2 2>/dev/null)" ] && rm -f "$f.lock" || return 1
+  fi
   : > "$f.lock"
+  prompt="${prompt:0:600}"   # pasted walls of text: the first 600 chars are plenty for a title
   ( # background, fire-and-forget; Ollama cold-load can take 10s+
     r="$(curl -s -m 40 localhost:11434/api/generate -d "$(jq -cn --arg m "$LLM_MODEL" --arg p "Give a 3-5 word title for this coding session request. Output only the title, no quotes, no period.
 
@@ -172,9 +188,7 @@ ps -eo pid=,comm=,args= | while read -r pid comm args; do
       esac ;;
   esac
   [ -n "$agent" ] || continue
-  case " $args " in
-    *" daemon "*|*"bg-pty-host"*|*"bg-spare"*|*" -p "*|*"--print"*|*" exec "*|*"mcp-server"*|*" mcp "*|*" serve "*|*" run "*|*"--version"*) continue ;;
-  esac
+  [ "$(filter_args "$args")" = keep ] || continue
   printf '%s\t%s\n' "$pid" "$agent"
 done > "$cands"
 cut -f1 "$cands" > "$cands.pids"

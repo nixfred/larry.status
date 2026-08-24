@@ -39,6 +39,28 @@ t=$(./larry_sessions.sh --trim "  work on your Larry plugin, I think it can be m
 t=$(./larry_sessions.sh --trim "short one"); [ "$t" = "short one" ] && ok "short stays" || bad "short changed: '$t'"
 t=$(./larry_sessions.sh --trim "\"quoted title\""); [ "$t" = "quoted title" ] && ok "quotes stripped" || bad "quotes: '$t'"
 
+echo "process filter (subcommand-only, never prompt words):"
+while IFS='|' read -r args want; do
+  got=$(./larry_sessions.sh --filter-of "$args")
+  [ "$got" = "$want" ] && ok "'$args' → $want" || bad "'$args' → $got (want $want)"
+done <<'CASES'
+claude --append-system-prompt-file x --dangerously-skip-permissions|keep
+claude please run the tests and fix them|keep
+claude fix the exec path in mcp config|keep
+claude -p summarize this|skip
+claude --print hi|skip
+claude daemon run --origin transient|skip
+claude bg-pty-host --bg-pty-host /tmp/x.sock|skip
+codex -s danger-full-access -a never|keep
+codex exec "do it"|skip
+codex mcp-server|skip
+opencode|keep
+opencode run "hello"|skip
+opencode serve|skip
+CASES
+t=$(./larry_sessions.sh --trim "fix the café menu → añadir emoji 🎉🎉🎉 y más cosas para el plugin de omarchy")
+n=$(printf '%s' "$t" | LC_ALL=C.UTF-8 wc -m); [ "$n" -le 45 ] && printf '%s' "$t" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 && ok "utf-8 trim valid, $n chars: '$t'" || bad "utf-8 trim broken: '$t' ($n)"
+
 echo "collector:"
 out=$(LARRY_STATUS_NO_LLM=1 timeout 15 ./larry_sessions.sh) || { bad "collector exited non-zero"; out='[]'; }
 jq -e 'type=="array"' <<<"$out" >/dev/null && ok "emits JSON array" || bad "not a JSON array: ${out:0:80}"

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "larry.status",
   "name": "Larry Status",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": "Larry & Fred",
   "license": "MIT",
   "description": "Larry's face in the bar, alive. Reacts to the agents running on this host (Claude Code + Codex): asleep, idle, thinking, working, needs-you, speaking, alert. Panel = Agents on Deck (click or 1-9 to jump to that window), service health (qdrant, ollama, backups), fleet, brain state, one-click actions (heartbeat, btrfs snapshot, vicup save). Left-click = panel, middle-click = heartbeat now, right-click = next agent window.",

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 — 2026-08-24
+- Fix: interactive sessions whose *prompt text* contained `run`/`exec`/`mcp`/`serve` (e.g. `claude "please run the tests"`) were silently excluded. Filter now judges only the subcommand token and real flags (`--filter-of` test hook, 13 cases).
+- Fix: name length was counted in bytes under quickshell's C locale; UTF-8 prompts could be over-truncated or split mid-character. Collector now runs under `C.UTF-8`.
+- Fix: async titler cap prompt at 600 chars (pasted walls of text); recover from a stale `.lock` (>2 min) left by a killed titler.
+
 ## 0.4.0 — 2026-08-22
 - Agents on Deck now tracks **every agent CLI on the host**: Claude Code, Codex, OpenCode, Grok, Gemini, Copilot, aider (comm/argv detection, helper processes de-duplicated by ancestry).
 - **Crisp session names**: each session is matched to its own transcript by start time (±20s) and named from the first real prompt → then upgraded to a 3–5 word title from local gemma2 (Ollama, async, cached in `$XDG_RUNTIME_DIR/larry.status`). OpenCode uses its own `session.title`; Grok uses `prompt_history.jsonl`; Claude falls back to `current-work` task title → hook session-names → dir. `title_src` field says which.
