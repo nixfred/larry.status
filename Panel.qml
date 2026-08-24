@@ -33,6 +33,7 @@ Panel {
   property int fleetOnline: -1
   property int fleetTotal: 0
   property var fleetDown: []
+  property bool haveStatus: false       // heartbeat file present + parseable
 
   // Agents on deck come from the host widget (single poller).
   readonly property var sessions: hostWidget ? hostWidget.sessions : []
@@ -133,12 +134,15 @@ Panel {
       okQdrant = s.qdrant === true
       okBackup = s.backup_timer === true
       lastTs = s.ts || ""
-      if (s.fleet) {
-        fleetOnline = s.fleet.online
-        fleetTotal = s.fleet.total
-        fleetDown = s.fleet.down || []
-      } else { fleetOnline = -1; fleetTotal = 0; fleetDown = [] }
-    } catch (e) { okOllama = okQdrant = okBackup = false; lastTs = ""; fleetOnline = -1; fleetTotal = 0; fleetDown = [] }
+      haveStatus = true
+      // fleet numbers drive a Repeater — clamp and type-check untrusted JSON
+      var f = s.fleet || null
+      var tot = f && Number.isInteger(f.total) ? Math.max(0, Math.min(64, f.total)) : 0
+      var on = f && Number.isInteger(f.online) ? Math.max(0, Math.min(tot, f.online)) : -1
+      fleetTotal = tot
+      fleetOnline = f ? on : -1
+      fleetDown = f && Array.isArray(f.down) ? f.down.slice(0, 64).map(String) : []
+    } catch (e) { okOllama = okQdrant = okBackup = false; lastTs = ""; haveStatus = false; fleetOnline = -1; fleetTotal = 0; fleetDown = [] }
   }
 
   FileView {
@@ -203,11 +207,12 @@ Panel {
     property string label: ""
     property string detail: ""
     property bool up: false
+    readonly property bool known: root.haveStatus     // no heartbeat yet ≠ three outages
     Layout.fillWidth: true
     spacing: Style.space(8)
     Rectangle {
       width: Style.space(10); height: Style.space(10); radius: width / 2
-      color: up ? root.okColor : root.urgent
+      color: !known ? root.dim : (up ? root.okColor : root.urgent)
     }
     Text {
       text: label
@@ -218,9 +223,9 @@ Panel {
     }
     Item { Layout.fillWidth: true }
     Text {
-      text: up ? detail : "DOWN"
+      text: !known ? "UNKNOWN" : (up ? detail : "DOWN")
       textFormat: Text.PlainText
-      color: up ? root.dim : root.urgent
+      color: (!known || up) ? root.dim : root.urgent
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
     }
@@ -499,7 +504,7 @@ Panel {
                 delegate: Rectangle {
                   required property int index
                   width: Style.space(9); height: Style.space(9); radius: width / 2
-                  color: index < (root.fleetTotal - root.fleetDown.length) ? root.okColor : root.urgent
+                  color: index < root.fleetOnline ? root.okColor : root.urgent
                 }
               }
             }

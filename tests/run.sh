@@ -47,6 +47,9 @@ done <<'CASES'
 claude --append-system-prompt-file x --dangerously-skip-permissions|keep
 claude please run the tests and fix them|keep
 claude fix the exec path in mcp config|keep
+claude exec this prompt for me|skip
+claude --model opus explain-the-mcp-server-flags|keep
+claude --model opus -p quiet|skip
 claude -p summarize this|skip
 claude --print hi|skip
 claude daemon run --origin transient|skip
@@ -60,6 +63,14 @@ opencode serve|skip
 CASES
 t=$(./larry_sessions.sh --trim "fix the café menu → añadir emoji 🎉🎉🎉 y más cosas para el plugin de omarchy")
 n=$(printf '%s' "$t" | LC_ALL=C.UTF-8 wc -m); [ "$n" -le 45 ] && printf '%s' "$t" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 && ok "utf-8 trim valid, $n chars: '$t'" || bad "utf-8 trim broken: '$t' ($n)"
+
+echo "cache hygiene:"
+C="${XDG_RUNTIME_DIR:-/tmp}/larry.status"
+[ -d "$C" ] && [ -O "$C" ] && [ ! -L "$C" ] && ok "cache dir owned, not a symlink" || bad "cache dir suspicious: $C"
+[ -z "$(find "$C" -maxdepth 2 -type f -perm /o+r 2>/dev/null | head -1)" ] && ok "no world-readable cache files" || bad "world-readable cache files present"
+grep -q 'mkdir "$f.lock"' larry_sessions.sh && ok "titler lock is atomic (mkdir)" || bad "titler lock not atomic"
+grep -q 'mapfile -d' larry_sessions.sh && ok "argv read NUL-delimited" || bad "argv flattened"
+grep -qF '0x[0-9a-fA-F]+$/' BarWidget.qml && ok "focus address validated before Lua splice" || bad "unvalidated address in Lua"
 
 echo "collector:"
 out=$(LARRY_STATUS_NO_LLM=1 timeout 15 ./larry_sessions.sh) || { bad "collector exited non-zero"; out='[]'; }

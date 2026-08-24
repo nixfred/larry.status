@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 — 2026-08-24 — Codex review pass
+Independent review by Codex (`docs/reviews/codex-2026-08-24.md`, 12 findings). Fixed:
+- Cache dir must be user-owned + non-symlink (private fallback instead of shared `/tmp`), `umask 077`, daily prune of entries >7d.
+- Titler lock is atomic (`mkdir`), temp files unique (`mktemp`), lock is a dir.
+- argv read NUL-delimited from `/proc`; subcommand/flag filter works on real tokens (`--session-id` parsed from argv too).
+- Every field sanitized (tabs/newlines) before TSV framing and cache writes; cache entries validated (src enum, numeric kpid) and rebuilt if bad.
+- Transcript matching: closest timestamp instead of first; Codex match prefers same `cwd` (session_meta.cwd).
+- PID-reuse guard (start ticks re-checked before emitting a row); `start=0` rows dropped; `mktemp`/cache failures → clean `[]`.
+- QML: focus address validated `^0x[0-9a-fA-F]+$` before the Lua splice; script path URL-decoded; a failed collector run keeps the last good list and flags ⚠ in the tooltip instead of faking "asleep".
+- Panel: services show UNKNOWN until a heartbeat is loaded; fleet numbers type-checked and clamped (≤64), dots use `online`.
+- README: alert wording matched to implementation.
+
 ## 0.4.2 — 2026-08-24
 - Fix: a detached Claude session and its resumed fork got different LLM titles for the same prompt — title cache is now keyed by prompt hash, not pid.
 - Perf: static per-process facts (sid, kitty pid, first prompt, name) cached per pid+start; start/elapsed read from `/proc` instead of `ps`/`date`; one `jq` at the end instead of one per row. Poll cost 0.8s → 0.47s with 5 agents; bar poll 5s → 8s, panel-open poll 2s → 3s.

@@ -22,7 +22,7 @@ BarWidget {
   readonly property string statusPath: home + "/.claude/MEMORY/STATE/heartbeat.status.json"
   readonly property string voicePath: home + "/.claude/voice.json"
   readonly property string sessionsScript:
-    Qt.resolvedUrl("larry_sessions.sh").toString().replace(/^file:\/\//, "")
+    decodeURIComponent(Qt.resolvedUrl("larry_sessions.sh").toString().replace(/^file:\/\//, ""))
 
   // ---- heartbeat (services)
   property bool okOllama: false
@@ -37,6 +37,7 @@ BarWidget {
 
   // ---- agents on deck
   property var sessions: []            // [{pid,sid,name,cwd,project,state,agent,attached,address,workspace,etimes}]
+  property bool sessionsHealthy: true  // false = last collector run failed; `sessions` is the last good list
   readonly property int sessionCount: sessions.length
   readonly property int workingCount: sessions.filter(function(s){ return s.state === "working" || s.state === "thinking" }).length
   readonly property int questionCount: sessions.filter(function(s){ return s.state === "question" }).length
@@ -126,12 +127,16 @@ BarWidget {
     command: ["bash", root.sessionsScript]
     stdout: StdioCollector {
       onStreamFinished: {
+        // A failed/garbled run keeps the last good list instead of faking "asleep".
         try {
-          var v = JSON.parse(text.trim() || "[]")
-          root.sessions = Array.isArray(v) ? v : []
-        } catch (e) { root.sessions = [] }
+          var v = JSON.parse(text.trim())
+          if (!Array.isArray(v)) throw "not an array"
+          root.sessions = v
+          root.sessionsHealthy = true
+        } catch (e) { root.sessionsHealthy = false }
       }
     }
+    onExited: function(code, status) { if (code !== 0) root.sessionsHealthy = false }
   }
   Timer { interval: 8000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refreshSessions() }
 
@@ -139,6 +144,7 @@ BarWidget {
   Process { id: focusProc }
   function focusSession(s) {
     if (!s || !s.attached || !s.address) return false
+    if (!/^0x[0-9a-fA-F]+$/.test(String(s.address))) return false   // never splice untrusted text into Lua
     // Hyprland ≥0.56: `hyprctl dispatch` takes Lua; classic `focuswindow address:` is rejected.
     focusProc.command = ["hyprctl", "dispatch", 'hl.dsp.focus({ window = "address:' + s.address + '" })']
     focusProc.running = true
@@ -200,6 +206,7 @@ BarWidget {
         + (root.questionCount ? ", " + root.questionCount + " waiting on you" : ""))
     }
     if (root.speaking) parts.push("speaking")
+    if (!root.sessionsHealthy) parts.push("⚠ collector failed — list may be stale")
     if (!root.haveStatus) parts.push("no heartbeat yet")
     else if (!root.allGreen) parts.push("ollama=" + (root.okOllama ? "up" : "DOWN")
         + " qdrant=" + (root.okQdrant ? "up" : "DOWN")

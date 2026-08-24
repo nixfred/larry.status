@@ -14,7 +14,7 @@ Larry's face, drawn live in QML, reacting to what Larry is actually doing on thi
 | **working** | a session is executing (⚙️ / spinner) | bright eyes, fast pulse |
 | **needs you** | a session asked a question (❓) | amber, eyes look up |
 | **speaking** | ElevenLabs is talking (VoiceServer → mpv) | green mouth equalizer |
-| **alert** | qdrant / ollama / backup timer down, or heartbeat stale | red, wide eyes |
+| **alert** | qdrant / ollama / backup timer confirmed down (a missing/stale heartbeat only dims) | red, wide eyes |
 
 Next to the face: number of agents on deck (amber when one is waiting on you).
 
