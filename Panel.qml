@@ -189,19 +189,21 @@ Panel {
   Process {
     id: heartbeatNow
     command: [root.home + "/bin/larry-heartbeat"]
-    onRunningChanged: if (!running) { root.busy = false; root.actionNote = "heartbeat done"; statusFile.reload() }
+    onExited: function(code, status) { root.busy = false; root.actionNote = code === 0 ? "heartbeat done" : "heartbeat failed (exit " + code + ")"; statusFile.reload() }
   }
   Process {
     id: snapNow
-    command: ["sh", "-c", root.home + "/bin/larry-snap 'from larry.status panel' 2>&1 | head -1"]
-    stdout: StdioCollector { onStreamFinished: root.actionNote = text.trim() }
-    onRunningChanged: if (!running) root.busy = false
+    command: [root.home + "/bin/larry-snap", "from larry.status panel"]
+    stdout: StdioCollector { onStreamFinished: root.actionNote = text.trim().split("\n")[0] }
+    stderr: StdioCollector { onStreamFinished: if (text.trim() !== "" && root.actionNote === "") root.actionNote = text.trim().split("\n")[0] }
+    onExited: function(code, status) { root.busy = false; if (code !== 0) root.actionNote = "snap failed (exit " + code + "): " + root.actionNote }
   }
   Process {
     id: vicupNow
-    command: ["sh", "-c", root.home + "/bin/vicup 'save from larry.status panel' 2>&1 | tail -1"]
-    stdout: StdioCollector { onStreamFinished: root.actionNote = text.trim() }
-    onRunningChanged: if (!running) root.busy = false
+    command: [root.home + "/bin/vicup", "save from larry.status panel"]
+    stdout: StdioCollector { onStreamFinished: { var l = text.trim().split("\n"); root.actionNote = l[l.length - 1] } }
+    stderr: StdioCollector { onStreamFinished: if (text.trim() !== "" && root.actionNote === "") { var l = text.trim().split("\n"); root.actionNote = l[l.length - 1] } }
+    onExited: function(code, status) { root.busy = false; if (code !== 0) root.actionNote = "vicup failed (exit " + code + "): " + root.actionNote }
   }
 
   component ServiceRow: RowLayout {
@@ -561,7 +563,7 @@ Panel {
           Text {
             Layout.fillWidth: true
             visible: root.actionNote !== ""
-            text: (root.busy ? "⏳ " : "✓ ") + root.actionNote
+            text: (root.busy ? "⏳ " : (root.actionNote.indexOf("failed") >= 0 ? "✗ " : "✓ ")) + root.actionNote
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily

@@ -33,9 +33,9 @@ LLM=1; [ "${LARRY_STATUS_NO_LLM:-0}" = 1 ] && LLM=0
 mkdir -p "$CACHE/names" "$CACHE/llm" 2>/dev/null
 # refuse to use a cache we don't own or that is a symlink (another user could pre-create /tmp paths)
 for d in "$CACHE" "$CACHE/names" "$CACHE/llm"; do
-  [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] || { echo '[]'; exit 0; }
+  [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ] || { echo "larry_sessions: unsafe cache dir $d" >&2; exit 2; }
 done
-chmod -R go-rwx "$CACHE" 2>/dev/null   # entries written before the umask hardening
+[ -e "$CACHE/.hardened" ] || { chmod -R go-rwx "$CACHE" 2>/dev/null; : > "$CACHE/.hardened"; }   # one-time: entries written before the umask hardening
 # prune stale entries once a day (long uptimes, many sessions)
 if [ -z "$(find "$CACHE/.pruned" -mmin -1440 2>/dev/null)" ]; then
   find "$CACHE/names" "$CACHE/llm" -type f -mtime +7 -delete 2>/dev/null; : > "$CACHE/.pruned"
@@ -83,13 +83,17 @@ case "${1:-}" in
   --trim)     trim_name "${2:-}"; echo; exit 0 ;;
   --no-llm)   LLM=0 ;;
 esac
-command -v jq >/dev/null 2>&1 || { echo '[]'; exit 0; }
+command -v jq >/dev/null 2>&1 || { echo "larry_sessions: jq missing" >&2; exit 2; }
 
+stat_field() { # pid N → field N of /proc/pid/stat (1-based, as in proc(5)); robust to spaces/parens in comm
+  local raw; raw="$(cat /proc/"$1"/stat 2>/dev/null)" || return 1
+  awk -v n="$(( $2 - 2 ))" '{print $n}' <<<"${raw##*) }"   # after the LAST ")" the fields start at 3
+}
 epoch_of() { date -d "$1" +%s 2>/dev/null || echo 0; }
 abs_diff() { local d=$(( $1 - $2 )); echo "${d#-}"; }
 BTIME="$(awk '/^btime/ {print $2}' /proc/stat)"; CLK_TCK="$(getconf CLK_TCK 2>/dev/null || echo 100)"; NOW="$(printf '%(%s)T' -1)"
 start_epoch() { # pid → epoch seconds, from /proc (no ps/date spawn)
-  local st; st="$(awk '{print $22}' /proc/"$1"/stat 2>/dev/null)" || { echo 0; return; }
+  local st; st="$(stat_field "$1" 22)"; [ -n "$st" ] || { echo 0; return; }
   echo $(( BTIME + st / CLK_TCK ))
 }
 
@@ -98,13 +102,13 @@ kitty_ancestor() { # pid → nearest ancestor whose comm is kitty (or empty)
   while [ -n "$p" ] && [ "$p" != "1" ] && [ "$p" != "0" ]; do
     c="$(cat /proc/"$p"/comm 2>/dev/null)" || return 0
     if [ "$c" = "kitty" ]; then echo "$p"; return 0; fi
-    p="$(awk '{print $4}' /proc/"$p"/stat 2>/dev/null)"
+    p="$(stat_field "$p" 4)"
   done
 }
 ancestor_in_set() { # pid setfile → 0 if any of up to 8 ancestors is listed
   local p="$1" i
   for i in 1 2 3 4 5 6 7 8; do
-    p="$(awk '{print $4}' /proc/"$p"/stat 2>/dev/null)" || return 1
+    p="$(stat_field "$p" 4)" || return 1
     [ -z "$p" ] || [ "$p" = "1" ] && return 1
     grep -qx "$p" "$2" && return 0
   done
@@ -146,7 +150,7 @@ claude_first_prompt() { # sid cwd
   [ -r "$f" ] || return 1
   head -c 60000 "$f" | jq -r 'select(.type=="user") | .message.content
       | if type=="string" then . else (map(select(.type=="text")|.text)|join(" ")) end
-      | select(test("^\\s*(<|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null
+      | select(test("^\\s*(<|#|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null
 }
 claude_sid_by_start() { # cwd start_epoch → sid whose jsonl first timestamp is CLOSEST (≤20s)
   local slug d f ts diff best="" bestd=999
@@ -172,9 +176,9 @@ codex_first_prompt() { # start_epoch cwd → first real user message of the roll
     elif [ "$bestcwd" = 0 ] && [ "$diff" -lt "$bestd" ]; then best="$f"; bestd="$diff"; fi
   done < <(ls -t "$HOME"/.codex/sessions/*/*/*/rollout-*.jsonl 2>/dev/null | head -40)
   [ -n "$best" ] || return 1
-  head -c 400000 "$best" | jq -r 'select(.type=="response_item" and .payload.type=="message" and .payload.role=="user")
+  head -n 300 "$best" | jq -r 'select(.type=="response_item" and .payload.type=="message" and .payload.role=="user")
       | .payload.content | map(select(.type=="input_text")|.text) | join(" ")
-      | select(test("^\\s*(<|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null
+      | select(test("^\\s*(<|#|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null
 }
 opencode_title() { # start_epoch cwd
   local db="$HOME/.local/share/opencode/opencode.db"
@@ -192,7 +196,8 @@ grok_first_prompt() { # start_epoch cwd
 }
 
 # ------------------------------------------------------------------ gather
-clients="$(hyprctl clients -j 2>/dev/null || echo '[]')"
+clients="$(hyprctl clients -j 2>/dev/null)" || { echo "larry_sessions: hyprctl failed" >&2; exit 2; }
+[ -n "$clients" ] || { echo "larry_sessions: hyprctl returned nothing" >&2; exit 2; }
 names="$( [ -r "$STATE/session-names.json" ] && cat "$STATE/session-names.json" || echo '{}' )"
 kmap='{}'
 for f in "$STATE"/kitty-sessions/*.json; do
@@ -305,7 +310,7 @@ while IFS=$'\t' read -r pid agent; do
   [ -z "$addr" ] && attached=false || attached=true
 
   # PID reuse guard: the process we described must be the one still running
-  [ "$(awk '{print $22}' /proc/"$pid"/stat 2>/dev/null)" = "$st0" ] || continue
+  [ "$(stat_field "$pid" 22)" = "$st0" ] || continue
   [[ "$addr" =~ ^(0x[0-9a-fA-F]+)?$ ]] || addr=""
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$pid" "$(san "$sid")" "$(san "$name")" "$src" "$(san "$cwd")" "$(san "$project")" "$state" "$agent" "$attached" \
@@ -314,8 +319,8 @@ done < "$cands"
 
 # ChatGPT desktop app (openai-codex-desktop, Hyprland class "chatgpt"). The Electron window
 # title is static, but its child `codex app-server` holds the live ~/.codex rollouts open:
-#   state = working while any open rollout's last task event is task_started (no task_complete yet)
-#   name  = first user prompt of the root rollout (oldest open one) → gemma title, like codex rows
+#   state = working while any open rollout has more task_started than task_complete (≤30 min old)
+#   name  = first user prompt of the root rollout (session_meta without parent_thread_id) → gemma title
 chatgpt_rollouts() { # window pid → open rollout paths of any descendant app-server (via /proc fds)
   local p
   for p in $(pgrep -f "resources/codex.*app-server" 2>/dev/null); do
@@ -326,32 +331,57 @@ chatgpt_rollouts() { # window pid → open rollout paths of any descendant app-s
 ancestor_is() { # pid target → 0 if target is among up to 6 ancestors
   local p="$1" i
   for i in 1 2 3 4 5 6; do
-    p="$(awk '{print $4}' /proc/"$p"/stat 2>/dev/null)" || return 1
+    p="$(stat_field "$p" 4)" || return 1
     [ -z "$p" ] || [ "$p" = "1" ] && return 1
     [ "$p" = "$2" ] && return 0
   done
   return 1
 }
+chatgpt_state() { # rollout... → working|idle
+  local rf st=idle
+  for rf in "$@"; do
+    [ -r "$rf" ] || continue
+    # whole file, no jq: a turn is open while task_started outnumbers task_complete.
+    # Cap at 30 min since last write so an aborted turn (no task_complete ever) can't stick on working.
+    if [ "$(grep -c '"type":"task_started"' "$rf")" -gt "$(grep -c '"type":"task_complete"' "$rf")" ] \
+       && [ $(( NOW - $(stat -c %Y "$rf" 2>/dev/null || echo 0) )) -lt 1800 ]; then st=working; fi
+  done
+  echo "$st"
+}
+chatgpt_root() { # rollout... → the one whose session_meta has no parent_thread_id (sub-agents do)
+  local rf
+  for rf in "$@"; do
+    [ -r "$rf" ] || continue
+    head -1 "$rf" | jq -e '.type=="session_meta" and (.payload.parent_thread_id // null)==null' >/dev/null 2>&1 && { echo "$rf"; return 0; }
+  done
+  return 1
+}
+chatgpt_prompt() { # rollout → first real user message (skips <…> and # context blocks); line-based head, never byte-truncate jsonl
+  head -n 300 "$1" | jq -r 'select(.type=="response_item" and .payload.type=="message" and .payload.role=="user")
+      | .payload.content | map(select(.type=="input_text")|.text) | join(" ")
+      | select(test("^\\s*(<|#|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null
+}
+case "${1:-}" in
+  --chatgpt-state)  shift; chatgpt_state "$@"; exit 0 ;;
+  --chatgpt-root)   shift; chatgpt_root "$@"; exit 0 ;;
+  --chatgpt-prompt) chatgpt_prompt "$2"; exit 0 ;;
+esac
 while IFS=$'\t' read -r cpid caddr cws ctitle; do
   [ -n "$cpid" ] || continue
   [[ "$caddr" =~ ^0x[0-9a-fA-F]+$ ]] || continue
-  cet=$(( NOW - $(start_epoch "$cpid") ))
-  cstate=idle; cname="ChatGPT"; csrc=agent; cprompt=""; root=""
-  while IFS= read -r rf; do
-    [ -r "$rf" ] || continue
-    [ -z "$root" ] && root="$rf"   # ls -tr below: oldest first = root thread
-    last="$(tail -n 400 "$rf" | jq -r 'select(.type=="event_msg" and (.payload.type=="task_started" or .payload.type=="task_complete")) | .payload.type' 2>/dev/null | tail -1)"
-    [ "$last" = task_started ] && cstate=working
-  done < <(chatgpt_rollouts "$cpid" | xargs -r ls -tr 2>/dev/null)
-  if [ -n "$root" ]; then
-    cprompt="$(head -c 400000 "$root" | jq -r 'select(.type=="response_item" and .payload.type=="message" and .payload.role=="user")
-      | .payload.content | map(select(.type=="input_text")|.text) | join(" ")
-      | select(test("^\\s*(<|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null)"
+  cst0="$(stat_field "$cpid" 22)"; [ -n "$cst0" ] || continue
+  cet=$(( NOW - BTIME - cst0 / CLK_TCK ))
+  cname="ChatGPT"; csrc=agent; cprompt=""
+  mapfile -t crf < <(chatgpt_rollouts "$cpid")
+  cstate="$(chatgpt_state "${crf[@]}")"
+  if root="$(chatgpt_root "${crf[@]}")"; then
+    cprompt="$(chatgpt_prompt "$root")"
     if [ -n "$cprompt" ]; then
       cname="$(trim_name "$cprompt")"; csrc=prompt
       t="$(llm_title "chatgpt" "$cprompt")" && { cname="$(trim_name "$t")"; csrc=llm; }
     fi
   fi
+  [ "$(stat_field "$cpid" 22)" = "$cst0" ] || continue   # PID reuse guard, same as CLI rows
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$cpid" "chatgpt-$cpid" "$(san "$cname")" "$csrc" "" "ChatGPT app" "$cstate" chatgpt true \
     "$(san "$ctitle")" 0 "$caddr" "${cws:-0}" "$cet" >> "$rows"

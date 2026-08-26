@@ -65,12 +65,33 @@ t=$(./larry_sessions.sh --trim "fix the café menu → añadir emoji 🎉🎉�
 n=$(printf '%s' "$t" | LC_ALL=C.UTF-8 wc -m); [ "$n" -le 45 ] && printf '%s' "$t" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 && ok "utf-8 trim valid, $n chars: '$t'" || bad "utf-8 trim broken: '$t' ($n)"
 
 echo "cache hygiene:"
-C="${XDG_RUNTIME_DIR:-/tmp}/larry.status"
+C="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}/larry.status-$(id -u)}"; [ -n "${XDG_RUNTIME_DIR:-}" ] && C="$XDG_RUNTIME_DIR/larry.status"
 [ -d "$C" ] && [ -O "$C" ] && [ ! -L "$C" ] && ok "cache dir owned, not a symlink" || bad "cache dir suspicious: $C"
 [ -z "$(find "$C" -maxdepth 2 -type f -perm /o+r 2>/dev/null | head -1)" ] && ok "no world-readable cache files" || bad "world-readable cache files present"
 grep -q 'mkdir "$f.lock"' larry_sessions.sh && ok "titler lock is atomic (mkdir)" || bad "titler lock not atomic"
 grep -q 'mapfile -d' larry_sessions.sh && ok "argv read NUL-delimited" || bad "argv flattened"
 grep -qF '0x[0-9a-fA-F]+$/' BarWidget.qml && ok "focus address validated before Lua splice" || bad "unvalidated address in Lua"
+
+echo "chatgpt rollouts + failure modes:"
+# fixture: root rollout (no parent_thread_id) with an open turn, a subagent with a closed turn
+F=$(mktemp -d); trap 'rm -rf "$F"' EXIT
+printf '%s\n' '{"type":"session_meta","payload":{"id":"r","timestamp":"2026-01-01T00:00:00Z","cwd":"/x"}}' \
+  '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<recommended_plugins>\nblob"}]}}' \
+  '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"\n# Files mentioned by the user:\nfoo"}]}}' \
+  '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"build me a website"}]}}' \
+  '{"type":"event_msg","payload":{"type":"task_started"}}' '{"type":"event_msg","payload":{"type":"task_complete"}}' \
+  '{"type":"event_msg","payload":{"type":"task_started"}}' > "$F/root.jsonl"
+printf '%s\n' '{"type":"session_meta","payload":{"id":"s","parent_thread_id":"r","timestamp":"2026-01-01T00:00:01Z","cwd":"/x"}}' \
+  '{"type":"event_msg","payload":{"type":"task_started"}}' '{"type":"event_msg","payload":{"type":"task_complete"}}' > "$F/sub.jsonl"
+# whole-file counting (not a tail window): pad the root with 1000 filler events after task_started
+for i in $(seq 1000); do echo '{"type":"event_msg","payload":{"type":"item_completed"}}'; done >> "$F/root.jsonl"
+r=$(./larry_sessions.sh --chatgpt-state "$F/root.jsonl" "$F/sub.jsonl"); [ "$r" = working ] && ok "open turn → working even 1000 lines past task_started" || bad "chatgpt state: $r"
+touch -d '-31 minutes' "$F/root.jsonl"
+r=$(./larry_sessions.sh --chatgpt-state "$F/root.jsonl"); [ "$r" = idle ] && ok "stale open turn (>30m) → idle" || bad "stale cap broken: $r"
+r=$(./larry_sessions.sh --chatgpt-state "$F/sub.jsonl"); [ "$r" = idle ] && ok "closed turn → idle" || bad "closed turn: $r"
+r=$(./larry_sessions.sh --chatgpt-root "$F/sub.jsonl" "$F/root.jsonl"); [ "$r" = "$F/root.jsonl" ] && ok "root = session_meta without parent_thread_id" || bad "root pick: $r"
+r=$(./larry_sessions.sh --chatgpt-prompt "$F/root.jsonl"); [ "$r" = "build me a website" ] && ok "prompt skips <…> and # context blocks" || bad "prompt: '$r'"
+PATH=/nonexistent /bin/bash ./larry_sessions.sh >/dev/null 2>&1; [ $? -eq 2 ] && ok "missing deps → exit 2, not a fake empty list" || bad "missing deps exit code wrong"
 
 echo "collector:"
 out=$(LARRY_STATUS_NO_LLM=1 timeout 15 ./larry_sessions.sh) || { bad "collector exited non-zero"; out='[]'; }
