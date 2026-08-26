@@ -80,7 +80,7 @@ if [ "$n" -gt 0 ]; then
   jq -e 'all(.[]; has("pid") and has("sid") and has("name") and has("cwd") and has("state") and has("agent") and has("attached") and has("address") and has("workspace") and has("etimes"))' <<<"$out" >/dev/null \
     && ok "all $n rows have required keys" || bad "rows missing keys"
   jq -e 'all(.[]; .state|IN("working","thinking","question","idle"))' <<<"$out" >/dev/null && ok "states valid" || bad "invalid state value"
-  jq -e 'all(.[]; .agent|IN("claude","codex","opencode","grok","gemini","copilot","aider"))' <<<"$out" >/dev/null && ok "agents valid" || bad "invalid agent value"
+  jq -e 'all(.[]; .agent|IN("claude","codex","chatgpt","opencode","grok","gemini","copilot","aider"))' <<<"$out" >/dev/null && ok "agents valid" || bad "invalid agent value"
   jq -e 'all(.[]; .title_src|IN("llm","prompt","agent","hook","dir"))' <<<"$out" >/dev/null && ok "title_src valid" || bad "invalid title_src"
   jq -e 'all(.[]; (.name|length) <= 46)' <<<"$out" >/dev/null && ok "names ≤ 44 chars + ellipsis" || bad "name too long"
   jq -e 'all(.[]; .agent != "claude" or .title_src != "dir")' <<<"$out" >/dev/null && ok "every claude session has a real name (not dir fallback)" || bad "claude session fell back to dir name"

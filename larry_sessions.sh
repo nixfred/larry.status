@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # larry_sessions.sh — enumerate live AI-agent sessions on this host for larry.status.
 #
-# Agents detected: claude (Claude Code), codex (OpenAI Codex), opencode, grok (xAI),
+# Agents detected: claude (Claude Code), codex (OpenAI Codex), chatgpt (desktop app window), opencode, grok (xAI),
 # gemini (Google), copilot (GitHub), aider. Anything interactive with a terminal, plus
 # daemon-hosted Claude sessions (bg-pty-host) which are listed as detached.
 #
@@ -311,6 +311,17 @@ while IFS=$'\t' read -r pid agent; do
     "$pid" "$(san "$sid")" "$(san "$name")" "$src" "$(san "$cwd")" "$(san "$project")" "$state" "$agent" "$attached" \
     "$(san "$title")" "${kpid:-0}" "$addr" "${ws:-0}" "$etimes" >> "$rows"
 done < "$cands"
+
+# ChatGPT desktop app (openai-codex-desktop, Hyprland class "chatgpt"): Electron, static title,
+# no transcript on disk we are willing to scrape → one clickable row per window, always idle.
+while IFS=$'\t' read -r cpid caddr cws ctitle; do
+  [ -n "$cpid" ] || continue
+  [[ "$caddr" =~ ^0x[0-9a-fA-F]+$ ]] || continue
+  cet=$(( NOW - $(start_epoch "$cpid") ))
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$cpid" "chatgpt-$cpid" "ChatGPT" agent "" "ChatGPT app" idle chatgpt true \
+    "$(san "$ctitle")" 0 "$caddr" "${cws:-0}" "$cet" >> "$rows"
+done < <(jq -r '.[] | select(.class=="chatgpt" and .mapped) | [.pid, .address, .workspace.id, .title] | @tsv' <<<"$clients")
 
 jq -Rsc 'split("\n") | map(select(length>0) | split("\t")) | map({
     pid:(.[0]|tonumber), sid:.[1], name:.[2], title_src:.[3], cwd:.[4], project:.[5], state:.[6],

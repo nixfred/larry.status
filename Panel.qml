@@ -102,11 +102,12 @@ Panel {
       default:         return root.dim
     }
   }
-  function agentLabel(a) { return a === "claude" ? "larry" : (a || "agent") }
+  function agentLabel(a) { return a === "claude" ? "larry" : (a === "chatgpt" ? "chatgpt" : (a || "agent")) }
   function agentGlyph(a) {
     switch (a) {
       case "claude":   return "󰚩"
       case "codex":    return ""
+      case "chatgpt":  return "󰭹"
       case "opencode": return "󰅩"
       case "grok":     return "𝕏"
       case "gemini":   return "󰊭"
