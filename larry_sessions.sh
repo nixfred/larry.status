@@ -312,14 +312,48 @@ while IFS=$'\t' read -r pid agent; do
     "$(san "$title")" "${kpid:-0}" "$addr" "${ws:-0}" "$etimes" >> "$rows"
 done < "$cands"
 
-# ChatGPT desktop app (openai-codex-desktop, Hyprland class "chatgpt"): Electron, static title,
-# no transcript on disk we are willing to scrape → one clickable row per window, always idle.
+# ChatGPT desktop app (openai-codex-desktop, Hyprland class "chatgpt"). The Electron window
+# title is static, but its child `codex app-server` holds the live ~/.codex rollouts open:
+#   state = working while any open rollout's last task event is task_started (no task_complete yet)
+#   name  = first user prompt of the root rollout (oldest open one) → gemma title, like codex rows
+chatgpt_rollouts() { # window pid → open rollout paths of any descendant app-server (via /proc fds)
+  local p
+  for p in $(pgrep -f "resources/codex.*app-server" 2>/dev/null); do
+    ancestor_is "$p" "$1" || continue
+    ls -l /proc/"$p"/fd 2>/dev/null | grep -o '/[^ ]*/rollout-[^ ]*\.jsonl$' | sort -u
+  done
+}
+ancestor_is() { # pid target → 0 if target is among up to 6 ancestors
+  local p="$1" i
+  for i in 1 2 3 4 5 6; do
+    p="$(awk '{print $4}' /proc/"$p"/stat 2>/dev/null)" || return 1
+    [ -z "$p" ] || [ "$p" = "1" ] && return 1
+    [ "$p" = "$2" ] && return 0
+  done
+  return 1
+}
 while IFS=$'\t' read -r cpid caddr cws ctitle; do
   [ -n "$cpid" ] || continue
   [[ "$caddr" =~ ^0x[0-9a-fA-F]+$ ]] || continue
   cet=$(( NOW - $(start_epoch "$cpid") ))
+  cstate=idle; cname="ChatGPT"; csrc=agent; cprompt=""; root=""
+  while IFS= read -r rf; do
+    [ -r "$rf" ] || continue
+    [ -z "$root" ] && root="$rf"   # ls -tr below: oldest first = root thread
+    last="$(tail -n 400 "$rf" | jq -r 'select(.type=="event_msg" and (.payload.type=="task_started" or .payload.type=="task_complete")) | .payload.type' 2>/dev/null | tail -1)"
+    [ "$last" = task_started ] && cstate=working
+  done < <(chatgpt_rollouts "$cpid" | xargs -r ls -tr 2>/dev/null)
+  if [ -n "$root" ]; then
+    cprompt="$(head -c 400000 "$root" | jq -r 'select(.type=="response_item" and .payload.type=="message" and .payload.role=="user")
+      | .payload.content | map(select(.type=="input_text")|.text) | join(" ")
+      | select(test("^\\s*(<|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null)"
+    if [ -n "$cprompt" ]; then
+      cname="$(trim_name "$cprompt")"; csrc=prompt
+      t="$(llm_title "chatgpt" "$cprompt")" && { cname="$(trim_name "$t")"; csrc=llm; }
+    fi
+  fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$cpid" "chatgpt-$cpid" "ChatGPT" agent "" "ChatGPT app" idle chatgpt true \
+    "$cpid" "chatgpt-$cpid" "$(san "$cname")" "$csrc" "" "ChatGPT app" "$cstate" chatgpt true \
     "$(san "$ctitle")" 0 "$caddr" "${cws:-0}" "$cet" >> "$rows"
 done < <(jq -r '.[] | select(.class=="chatgpt" and .mapped) | [.pid, .address, .workspace.id, .title] | @tsv' <<<"$clients")
 
