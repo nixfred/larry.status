@@ -89,8 +89,26 @@ r=$(./larry_sessions.sh --chatgpt-state "$F/root.jsonl" "$F/sub.jsonl"); [ "$r" 
 touch -d '-31 minutes' "$F/root.jsonl"
 r=$(./larry_sessions.sh --chatgpt-state "$F/root.jsonl"); [ "$r" = idle ] && ok "stale open turn (>30m) → idle" || bad "stale cap broken: $r"
 r=$(./larry_sessions.sh --chatgpt-state "$F/sub.jsonl"); [ "$r" = idle ] && ok "closed turn → idle" || bad "closed turn: $r"
+printf '%s\n' '{"type":"event_msg","payload":{"type":"task_started"}}' \
+  '{"type":"event_msg","payload":{"type":"task_started"}}' \
+  '{"type":"event_msg","payload":{"type":"task_complete"}}' \
+  '{"type":"event_msg","payload":{"type":"item_completed"}}' > "$F/recovered.jsonl"
+r=$(./larry_sessions.sh --chatgpt-state "$F/recovered.jsonl"); [ "$r" = idle ] && ok "latest completed turn clears an older abandoned turn" || bad "stale chatgpt working state: $r"
 r=$(./larry_sessions.sh --chatgpt-root "$F/sub.jsonl" "$F/root.jsonl"); [ "$r" = "$F/root.jsonl" ] && ok "root = session_meta without parent_thread_id" || bad "root pick: $r"
 r=$(./larry_sessions.sh --chatgpt-prompt "$F/root.jsonl"); [ "$r" = "build me a website" ] && ok "prompt skips <…> and # context blocks" || bad "prompt: '$r'"
+
+# Root and subagent rollouts can start in the same second and cwd. The CLI
+# process must inherit the root prompt, never whichever child file is newer.
+mkdir -p "$F/home/.codex/sessions/2026/01/01"
+start=$(date +%s)
+ts=$(date -u -d "@$start" +%Y-%m-%dT%H:%M:%SZ)
+printf '%s\n' "{\"type\":\"session_meta\",\"payload\":{\"timestamp\":\"$ts\",\"cwd\":\"/work dir\"}}" \
+  '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"root request"}]}}' > "$F/home/.codex/sessions/2026/01/01/rollout-root.jsonl"
+printf '%s\n' "{\"type\":\"session_meta\",\"payload\":{\"timestamp\":\"$ts\",\"cwd\":\"/work dir\",\"parent_thread_id\":\"root\"}}" \
+  '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"subagent request"}]}}' > "$F/home/.codex/sessions/2026/01/01/rollout-sub.jsonl"
+touch -d '+1 second' "$F/home/.codex/sessions/2026/01/01/rollout-sub.jsonl"
+r=$(HOME="$F/home" ./larry_sessions.sh --codex-prompt "$start" "/work dir" 2>/dev/null)
+[ "$r" = "root request" ] && ok "codex matching ignores child rollouts and preserves spaced cwd" || bad "codex matched '$r' (want root request)"
 PATH=/nonexistent /bin/bash ./larry_sessions.sh >/dev/null 2>&1; [ $? -eq 2 ] && ok "missing deps → exit 2, not a fake empty list" || bad "missing deps exit code wrong"
 
 echo "collector:"

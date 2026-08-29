@@ -168,7 +168,10 @@ codex_first_prompt() { # start_epoch cwd → first real user message of the roll
   # closest session_meta timestamp within 20s; a cwd match beats a non-match at any distance
   local f ts mcwd diff best="" bestd=999 bestcwd=0
   while IFS= read -r f; do
-    read -r ts mcwd < <(head -1 "$f" | jq -r 'select(.type=="session_meta") | "\(.payload.timestamp) \(.payload.cwd // "")"' 2>/dev/null)
+    # A CLI process owns the root rollout. Child rollouts can share its cwd and
+    # start timestamp, so accepting one makes the displayed title nondeterministic.
+    # TSV framing preserves cwd values containing spaces.
+    IFS=$'\t' read -r ts mcwd < <(head -1 "$f" | jq -r 'select(.type=="session_meta" and (.payload.parent_thread_id // null)==null) | [.payload.timestamp, (.payload.cwd // "")] | @tsv' 2>/dev/null)
     [ -n "${ts:-}" ] || continue
     diff="$(abs_diff "$(epoch_of "$ts")" "$1")"; [ "$diff" -le 20 ] || continue
     if [ "$mcwd" = "$2" ]; then
@@ -180,6 +183,9 @@ codex_first_prompt() { # start_epoch cwd → first real user message of the roll
       | .payload.content | map(select(.type=="input_text")|.text) | join(" ")
       | select(test("^\\s*(<|#|$)") | not) | @json' 2>/dev/null | head -1 | jq -r . 2>/dev/null
 }
+case "${1:-}" in
+  --codex-prompt) codex_first_prompt "${2:-0}" "${3:-}"; exit 0 ;;
+esac
 opencode_title() { # start_epoch cwd
   local db="$HOME/.local/share/opencode/opencode.db"
   [ -r "$db" ] && command -v sqlite3 >/dev/null || return 1
@@ -338,12 +344,15 @@ ancestor_is() { # pid target → 0 if target is among up to 6 ancestors
   return 1
 }
 chatgpt_state() { # rollout... → working|idle
-  local rf st=idle
+  local rf st=idle last
   for rf in "$@"; do
     [ -r "$rf" ] || continue
-    # whole file, no jq: a turn is open while task_started outnumbers task_complete.
-    # Cap at 30 min since last write so an aborted turn (no task_complete ever) can't stick on working.
-    if [ "$(grep -c '"type":"task_started"' "$rf")" -gt "$(grep -c '"type":"task_complete"' "$rf")" ] \
+    # Only the newest turn marker controls current state. Counting all markers
+    # lets one old abandoned turn keep a later successfully-completed session
+    # "working" as long as unrelated events continue updating the file.
+    last="$(grep -o '"type":"task_\(started\|complete\)"' "$rf" | tail -1)"
+    # Cap at 30 min since last write so an aborted current turn can't stick forever.
+    if [ "$last" = '"type":"task_started"' ] \
        && [ $(( NOW - $(stat -c %Y "$rf" 2>/dev/null || echo 0) )) -lt 1800 ]; then st=working; fi
   done
   echo "$st"
